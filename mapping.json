@@ -1,0 +1,34 @@
+{
+	"source": {
+		"user": "",
+		"password": "",
+		"descriptionString": ""
+	},
+	"dest": {
+		"host": "",
+		"user": "",
+		"password": "",
+		"database": "",
+		"scheme": ""
+	},
+	"tables": [
+		{
+			"source": {
+				"table": "TABLE",
+				"fields": [
+					"ID",
+					"ATTR2",
+					"ATTR3"
+				]
+			},
+			"dest": {
+				"table": "TABLE",
+				"fields": [
+					"ID",
+					"ATTR2",
+					"ATTR3"
+				]
+			}
+		}
+	]
+}
