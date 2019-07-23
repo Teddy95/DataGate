@@ -1,2 +1,3 @@
-# DatabaseSync
-Synchronize Databases for Oracle and Microsoft SQL-Server
+# DataGate
+
+Synchronize Data from Oracle Database to Microsoft SQL Server
