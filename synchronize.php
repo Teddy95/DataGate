@@ -56,14 +56,16 @@ $errorLogFileHandle = fopen('log/' . date('Y-m-d') . '_error-log.txt', 'w');
 $queryLogFileHandle = fopen('log/' . date('Y-m-d') . '_query-log.txt', 'w');
 
 // Connect to Oracle Database
-echo "Connecting to Oracle database ...\r\n";
+echo "Connect to Oracle database ...\r\n";
 $oraDB = oci_pconnect($mapping->source->user, $mapping->source->password, $mapping->source->descriptionString, 'AL32UTF8');
 
 // Export data from Oracle Database and create a sql import file for Microsoft SQL Server (for each table)
 foreach ($mapping->tables as $table) {
 	// Check all required fields from mapping.json file for current table
 	echo "Check mapping.json for current table ...\r\n";
-	if (!(isset($table->source)
+	if (!(isset($table->primaryKeys)
+		&& !empty($table->primaryKeys)
+		&& isset($table->source)
 		&& !empty($table->source)
 		&& isset($table->source->table)
 		&& !empty($table->source->table)
@@ -193,10 +195,49 @@ foreach ($mapping->tables as $table) {
 	}
 }
 
-/**
- * MERGE
- */
-// code ...
+// Merge import tables with target tables
+echo "Merge import tables with target tables ...\r\n";
+foreach ($mapping->tables as $table) {
+	// Build merge query
+	$query = "MERGE " . $mapping->dest->scheme . "." . $table->dest->table->merge . " AS TARGET ";
+	$query .= "USING " . $mapping->dest->scheme . "." . $table->dest->table->import . " AS SOURCE ";
+	$query .= "ON (";
+
+	$primaryKeys = array_slice($table->dest->fields, 0, (int)$table->primaryKeys);
+	$index = 0;
+
+	foreach ($primaryKeys as $key) {
+		if ($index > 0) {
+			$query .= " AND ";
+		}
+
+		$query .= "TARGET." . $key . " = SOURCE." . $key;
+		$index++;
+	}
+
+	$query .= ") WHEN MATCHED THEN UPDATE SET ";
+	$index = 0;
+
+	foreach ($table->dest->fields as $attr) {
+		if ($index > 0) {
+			$query .= ", ";
+		}
+
+		$query .= "TARGET." . $attr . " = SOURCE." . $attr;
+		$index++;
+	}
+
+	$query .= " WHEN NOT MATCHED BY TARGET THEN INSERT (" . implode(', ', $table->dest->fields) . ") VALUES (SOURCE." . implode(', SOURCE.', $table->dest->fields) . ") ";
+	$query .= "WHEN NOT MATCHED BY SOURCE THEN DELETE;";
+
+	// Execute merge query
+	echo "Merging " . $mapping->dest->scheme . "." . $table->dest->table->import . " into " . $mapping->dest->scheme . "." . $table->dest->table->merge . " ...\r\n";
+	$result = sqlsrv_query($sqlsrvDB, $query);
+
+	if (!$result) {
+		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query couldn't be performed: " . $query . "\r\n");
+	}
+}
 
 // Close SQl Server database connection
 echo "Close SQL Server connection ...\r\n";
