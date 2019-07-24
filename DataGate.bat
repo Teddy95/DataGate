@@ -1,0 +1,1 @@
+php ./synchronize.php
