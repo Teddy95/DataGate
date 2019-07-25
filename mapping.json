@@ -1,32 +1,45 @@
 {
 	"source": {
-		"user": "",
+		"user": "root",
 		"password": "",
-		"descriptionString": ""
+		"descriptionString": "(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT=1521)))(CONNECT_DATA=(SID=dba)))"
 	},
 	"dest": {
-		"host": "",
-		"user": "",
+		"host": "127.0.0.1",
+		"user": "root",
 		"password": "",
-		"database": "",
-		"scheme": ""
+		"database": "database",
+		"scheme": "dbo"
 	},
 	"tables": [
 		{
 			"source": {
-				"table": "TABLE",
+				"table": "Customers",
 				"fields": [
-					"ID",
-					"ATTR2",
-					"ATTR3"
+					"id",
+					"name",
+					"TO_CHAR(lastDelivery, 'YYYY-MM-DD HH24:MI:SS')"
+				],
+				"where": [
+					{
+						"attr": "lastDelivery",
+						"operator": ">=",
+						"value": "add_months( trunc( SYSDATE ), - 12 * 2 )"
+					}
 				]
 			},
 			"dest": {
-				"table": "TABLE",
+				"table": {
+					"import": "Customers_import",
+					"merge": "Customers"
+				},
 				"fields": [
-					"ID",
-					"ATTR2",
-					"ATTR3"
+					"id",
+					"name",
+					"lastDelivery"
+				],
+				"primaryKeys": [
+					1
 				]
 			}
 		}
