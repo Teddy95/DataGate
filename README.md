@@ -2,6 +2,8 @@
 
 Synchronize Tables from Oracle to Microsoft SQL Server :page_facing_up::door:
 
+![CMD performing DataGate](/assets/datagate_screen.png)
+
 ### mapping.json data structure
 
 ```
