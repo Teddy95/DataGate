@@ -64,6 +64,12 @@ If you are using the command line interface, you can use another mapping file fo
 $ php synchronize.php newMapping.json
 ```
 
+### Requirements
+
+- PHP 7.2.x
+- OCI8 extension for PHP
+- SQL Server extension for PHP
+
 ### Environment
 
 Testet on Windows 10 Pro Build 1809 with PHP 7.2.19 cli.
