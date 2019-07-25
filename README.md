@@ -7,8 +7,8 @@ Synchronize Tables from Oracle to Microsoft SQL Server :page_facing_up::door:
 ```
 {
 	source {
-		user				// Oracle Database Username
-		password			// Password
+		user			// Oracle Database Username
+		password		// Password
 		descriptionString	// Connection string
 	},
 	dest {
@@ -39,11 +39,11 @@ Synchronize Tables from Oracle to Microsoft SQL Server :page_facing_up::door:
 			},
 			dest {
 				table {
-					import		// Import table
-					merge		// Target table
+					import	// Import table
+					merge	// Target table
 				},
-				fields			// Synchronized table columns (Array)
-				primaryKeys		// Array with index numbers from field list to determine the primary keys
+				fields		// Synchronized table columns (Array)
+				primaryKeys	// Array with index numbers from field list to determine the primary keys
 			}
 		}
 	]
