@@ -2,6 +2,12 @@
 # Mapping file with secret data
 mapping.json
 
+# Cached sql files
+cache/*.sql
+
+# Logfiles
+log/*.txt
+
 # Created by https://www.gitignore.io/api/linux,macos,windows
 # Edit at https://www.gitignore.io/?templates=linux,macos,windows
 
