@@ -57,6 +57,12 @@ if (!(isset($mapping->source)
 	die();
 }
 
+// Clear cache
+echo "Clear cache ...";
+foreach (glob('cache/*.sql') as $cacheFile) {
+    unlink($cacheFile);
+}
+
 // Open logfile handlers
 $errorLogFileHandle = fopen('log/' . date('Y-m-d') . '_error-log.txt', 'w');
 $queryLogFileHandle = fopen('log/' . date('Y-m-d') . '_query-log.txt', 'w');
@@ -130,23 +136,28 @@ foreach ($mapping->tables as $table) {
 	// Fetch the result into a new sql import file for SQL Server
 	if ($statement) {
 		// Create file handler
-		$fileHandle = fopen('cache/' . $table->dest->table->merge . '.sql', 'w');
+		// $fileHandle = fopen('cache/' . $table->dest->table->merge . '.sql', 'w');
 
 		echo "Build " . $table->dest->table->merge . ".sql file ...\r\n";
 
 		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
 			// Build INSERT INTO sql queries
-			fwrite($fileHandle, "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table->import);
+			// fwrite($fileHandle, "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table->import);
+            $fileContent = "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table->import;
 
 			if (count($table->dest->fields) == 1 && $table->dest->fields[0] == '*') {
-				fwrite($fileHandle, " VALUES ('" . implode("', '", $row) . "')");
+				// fwrite($fileHandle, " VALUES ('" . implode("', '", $row) . "')");
+				$fileContent .= " VALUES ('" . implode("', '", $row) . "')";
 			} else {
-				fwrite($fileHandle, " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $row) . "');\r\n");
+				// fwrite($fileHandle, " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $row) . "');\r\n");
+				$fileContent .= " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $row) . "');";
 			}
+
+            file_put_contents('cache/' . $table->dest->table->merge . '_' . md5(time() . uniqid()) . '.sql', $fileContent);
 		}
 
 		// Close file handler
-		fclose($fileHandle);
+		// fclose($fileHandle);
 	} else {
 		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
 	}
@@ -158,47 +169,48 @@ oci_close($oraDB);
 
 // Connect to SQL Server
 echo "Connect to Microsoft SQL Server " . $mapping->dest->user . "@" . $mapping->dest->host . " ...\r\n";
-$sqlsrvDB = \sqlsrv_connect($mapping->dest->host, [
+$sqlsrvDB = sqlsrv_connect($mapping->dest->host, [
 	"Database" => $mapping->dest->database,
 	"Uid" => $mapping->dest->user,
-	"PWD" => $mapping->dest->password
+	"PWD" => $mapping->dest->password,
+    "CharacterSet" => 'UTF-8'
 ]);
 
 // Import all sql files to SQL Server database
 echo "Import all sql files to SQL Server ...\r\n";
 foreach ($mapping->tables as $table) {
-	// Check whether sql file for current table exists
-	if (file_exists('cache/' . $table->dest->table->merge . '.sql')) {
-		// Truncate import table
-		$query = "TRUNCATE TABLE " . $mapping->dest->scheme . "." . $table->dest->table->import . ";";
-		sqlsrv_query($sqlsrvDB, $query);
+    // Truncate import table
+    $query = "TRUNCATE TABLE " . $mapping->dest->scheme . "." . $table->dest->table->import . ";";
+    sqlsrv_query($sqlsrvDB, $query);
 
-		// Create file handler
-		$fileHandle = fopen('cache/' . $table->dest->table->merge . '.sql', 'r');
+    // Check whether sql files for current table exists
+    $sqlFiles = glob('cache/' . $table->dest->table->merge . '_*.sql');
 
-		while (!feof($fileHandle)) {
-			// Read query from file
-			$query = fgets($fileHandle);
+    if (count($sqlFiles) >= 1) {
+        // Iterate trough every sql file for current table, execute & unlink them
+        foreach ($sqlFiles as $sqlFile) {
+            // Read query from file
+            $query = trim(file_get_contents($sqlFile));
 
-			if (!empty($query)) {
+            if (!empty($query)) {
 				// Execute query
 				$result = sqlsrv_query($sqlsrvDB, $query);
 
 				if (!$result) {
 					fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query couldn't be performed: " . $query . "\r\n");
-				}
-			}
-		}
-
-		// Close file handle
-		fclose($fileHandle);
-
-		// Delete sql file from cache
-		echo "Delete " . $table->dest->table->merge . ".sql ...\r\n";
-		unlink('cache/' . $table->dest->table->merge . '.sql');
-	} else {
-		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
-	}
+                    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query file: " . $sqlFile . "\r\n");
+				} else {
+                    // Delete sql file from cache
+            		unlink($sqlFile);
+                }
+			} else {
+                // Delete sql file from cache
+        		unlink($sqlFile);
+            }
+        }
+    } else {
+        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
+    }
 }
 
 // Merge import tables with target tables
