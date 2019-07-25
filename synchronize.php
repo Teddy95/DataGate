@@ -12,18 +12,24 @@ if (PHP_SAPI !== 'cli') {
     die();
 }
 
+if (isset($argv[1]) && !empty($argv[1]) && strpos($argv[1], '.json')) {
+    $mappingFile = $argv[1];
+} else {
+    $mappingFile = 'mapping.json';
+}
+
 // Set timelimit for script execution
 set_time_limit(0);
 
 // Check mapping.json
-echo "Check mapping.json ...\r\n";
-if (!file_exists('mapping.json')) {
-	echo 'File mapping.json don\'t exists!';
+echo "Check " . $mappingFile . " ...\r\n";
+if (!file_exists($mappingFile)) {
+	echo 'File ' . $mappingFile . ' don\'t exists!';
 	die();
 }
 
 // Get data from mapping.json and check all required fields
-$mapping = json_decode(file_get_contents('mapping.json'));
+$mapping = json_decode(file_get_contents($mappingFile));
 
 if (!(isset($mapping->source)
 	&& !empty($mapping->source)
@@ -47,7 +53,7 @@ if (!(isset($mapping->source)
 	&& !empty($mapping->dest->scheme)
 	&& isset($mapping->tables)
 	&& !empty($mapping->tables))) {
-	echo 'File mapping.json don\'t have all required fields!';
+	echo 'File ' . $mappingFile . ' don\'t have all required fields!';
 	die();
 }
 
@@ -62,10 +68,8 @@ $oraDB = oci_pconnect($mapping->source->user, $mapping->source->password, $mappi
 // Export data from Oracle Database and create a sql import file for Microsoft SQL Server (for each table)
 foreach ($mapping->tables as $table) {
 	// Check all required fields from mapping.json file for current table
-	echo "Check mapping.json for current table ...\r\n";
-	if (!(isset($table->primaryKeys)
-		&& !empty($table->primaryKeys)
-		&& isset($table->source)
+	echo "Check " . $mappingFile . " for current table ...\r\n";
+	if (!(isset($table->source)
 		&& !empty($table->source)
 		&& isset($table->source->table)
 		&& !empty($table->source->table)
@@ -80,8 +84,10 @@ foreach ($mapping->tables as $table) {
 		&& isset($table->dest->table->merge)
 		&& !empty($table->dest->table->merge)
 		&& isset($table->dest->fields)
-		&& !empty($table->dest->fields))) {
-		echo 'File mapping.json don\'t have all required fields for table synchronization!';
+		&& !empty($table->dest->fields)
+		&& isset($table->dest->primaryKeys)
+		&& !empty($table->dest->primaryKeys))) {
+		echo 'File ' . $mappingFile . ' don\'t have all required fields for table synchronization!';
 		die();
 	}
 
@@ -201,17 +207,16 @@ foreach ($mapping->tables as $table) {
 	// Build merge query
 	$query = "MERGE " . $mapping->dest->scheme . "." . $table->dest->table->merge . " AS TARGET ";
 	$query .= "USING " . $mapping->dest->scheme . "." . $table->dest->table->import . " AS SOURCE ";
-	$query .= "ON (";
+    $query .= "ON (";
 
-	$primaryKeys = array_slice($table->dest->fields, 0, (int)$table->primaryKeys);
 	$index = 0;
 
-	foreach ($primaryKeys as $key) {
+	foreach ($table->dest->primaryKeys as $key) {
 		if ($index > 0) {
 			$query .= " AND ";
 		}
 
-		$query .= "TARGET." . $key . " = SOURCE." . $key;
+		$query .= "TARGET." . $table->dest->fields[--$key] . " = SOURCE." . $table->dest->fields[$key];
 		$index++;
 	}
 
@@ -236,6 +241,7 @@ foreach ($mapping->tables as $table) {
 
 	if (!$result) {
 		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query couldn't be performed: " . $query . "\r\n");
+        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query error server result: " . print_r(sqlsrv_errors(), true) . "\r\n");
 	}
 }
 
