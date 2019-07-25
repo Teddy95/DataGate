@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli') {
     die();
 }
 
+// Determine mapping file
 if (isset($argv[1]) && !empty($argv[1]) && strpos($argv[1], '.json')) {
     $mappingFile = $argv[1];
 } else {
@@ -58,7 +59,7 @@ if (!(isset($mapping->source)
 }
 
 // Clear cache
-echo "Clear cache ...";
+echo "Clear cache ...\r\n";
 foreach (glob('cache/*.sql') as $cacheFile) {
     unlink($cacheFile);
 }
@@ -135,29 +136,26 @@ foreach ($mapping->tables as $table) {
 
 	// Fetch the result into a new sql import file for SQL Server
 	if ($statement) {
-		// Create file handler
-		// $fileHandle = fopen('cache/' . $table->dest->table->merge . '.sql', 'w');
-
-		echo "Build " . $table->dest->table->merge . ".sql file ...\r\n";
+		echo "Build sql import files for table: " . $table->dest->table->merge . " ...\r\n";
 
 		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
 			// Build INSERT INTO sql queries
-			// fwrite($fileHandle, "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table->import);
             $fileContent = "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table->import;
+            $values = Array();
+
+            // Escape special characters
+            foreach ($row as $value) {
+                $values[] = str_replace("'", "''", $value);
+            }
 
 			if (count($table->dest->fields) == 1 && $table->dest->fields[0] == '*') {
-				// fwrite($fileHandle, " VALUES ('" . implode("', '", $row) . "')");
-				$fileContent .= " VALUES ('" . implode("', '", $row) . "')";
+				$fileContent .= " VALUES ('" . implode("', '", $values) . "')";
 			} else {
-				// fwrite($fileHandle, " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $row) . "');\r\n");
-				$fileContent .= " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $row) . "');";
+				$fileContent .= " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $values) . "');";
 			}
 
             file_put_contents('cache/' . $table->dest->table->merge . '_' . md5(time() . uniqid()) . '.sql', $fileContent);
 		}
-
-		// Close file handler
-		// fclose($fileHandle);
 	} else {
 		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
 	}
