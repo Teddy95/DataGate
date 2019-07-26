@@ -12,18 +12,18 @@ Synchronize Tables from Oracle to Microsoft SQL Server :page_facing_up::door:
 		user			// Oracle Database Username
 		password		// Password
 		descriptionString	// Connection string
-	},
+	}
 	dest {
 		host		// Microsoft SQL Server Hostname / IP-Address
 		user		// Username
 		password	// Password
 		database	// Database
 		scheme		// Database scheme
-	},
+	}
 	tables [
 		{
 			source {
-				table		// Table which should be synchronized
+				table		// Table which should be synchronized (Source table)
 				fields		// Table columns which should be synchronized (Array)
 				where [		// Where statements (Array)
 					{
@@ -40,10 +40,7 @@ Synchronize Tables from Oracle to Microsoft SQL Server :page_facing_up::door:
 				]
 			},
 			dest {
-				table {
-					import	// Import table
-					merge	// Target table
-				},
+				table		// Target table
 				fields		// Synchronized table columns (Array)
 				primaryKeys	// Array with index numbers from field list to determine the primary keys
 			}
