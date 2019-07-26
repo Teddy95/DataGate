@@ -65,8 +65,8 @@ foreach (glob('cache/*.sql') as $cacheFile) {
 }
 
 // Open logfile handlers
-$errorLogFileHandle = fopen('log/' . date('Y-m-d') . '_error-log.txt', 'w');
-$queryLogFileHandle = fopen('log/' . date('Y-m-d') . '_query-log.txt', 'w');
+$errorLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_error-log.txt', 'w');
+$queryLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_query-log.txt', 'w');
 
 // Connect to Oracle Database
 echo "Connect to Oracle database ...\r\n";
@@ -123,7 +123,7 @@ foreach ($mapping->tables as $table) {
 	}
 
 	// Add query to query log file
-	fwrite($queryLogFileHandle, date('Y-m-d H:i:s') . " [query]: " . $query . "\r\n");
+	fwrite($queryLogFileHandle, date('Y-m-d H:i:s') . " [query][Oracle]:\t\t" . $query . "\r\n");
 
 	// Execute query
 	echo "Execute query ...\r\n";
@@ -136,7 +136,7 @@ foreach ($mapping->tables as $table) {
 
 		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
 			// Build INSERT INTO sql queries
-            $fileContent = "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable";
+            $fileContent = "INSERT INTO [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable]";
             $values = Array();
 
             // Escape special characters
@@ -147,13 +147,13 @@ foreach ($mapping->tables as $table) {
 			if (count($table->dest->fields) == 1 && $table->dest->fields[0] == '*') {
 				$fileContent .= " VALUES ('" . implode("', '", $values) . "')";
 			} else {
-				$fileContent .= " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $values) . "');";
+				$fileContent .= " ([" . implode('], [', $table->dest->fields) . "]) VALUES ('" . implode("', '", $values) . "');";
 			}
 
             file_put_contents('cache/' . $table->dest->table . '_' . md5(time() . uniqid()) . '.sql', $fileContent);
 		}
 	} else {
-		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
+		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tTable " . $table->source->table . " couldn't be synced!\r\n");
 	}
 }
 
@@ -175,9 +175,9 @@ echo "Import all sql files to SQL Server ...\r\n";
 foreach ($mapping->tables as $table) {
     // Create import table & truncate it in case of a magic filled table
     echo "Create temporary import table from table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
-    $query = "SELECT * INTO " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable FROM " . $mapping->dest->scheme . "." . $table->dest->table . " WHERE 1 <> 1;";
+    $query = "SELECT * INTO [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable] FROM [" . $mapping->dest->scheme . "].[" . $table->dest->table . "] WHERE 1 <> 1;";
     sqlsrv_query($sqlsrvDB, $query);
-    $query = "TRUNCATE TABLE " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable;";
+    $query = "TRUNCATE TABLE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable];";
     sqlsrv_query($sqlsrvDB, $query);
 
     // Check whether sql files for current table exists
@@ -195,8 +195,8 @@ foreach ($mapping->tables as $table) {
 				$result = sqlsrv_query($sqlsrvDB, $query);
 
 				if (!$result) {
-					fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query couldn't be performed: " . $query . "\r\n");
-                    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query file: " . $sqlFile . "\r\n");
+					fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery couldn't be performed: " . $query . "\r\n");
+                    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery file: " . $sqlFile . "\r\n");
 				} else {
                     // Delete sql file from cache
             		unlink($sqlFile);
@@ -207,7 +207,7 @@ foreach ($mapping->tables as $table) {
             }
         }
     } else {
-        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
+        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tTable " . $table->source->table . " couldn't be synced!\r\n");
     }
 }
 
@@ -215,8 +215,8 @@ foreach ($mapping->tables as $table) {
 echo "Merge import tables with target tables ...\r\n";
 foreach ($mapping->tables as $table) {
 	// Build merge query
-	$query = "MERGE " . $mapping->dest->scheme . "." . $table->dest->table . " AS TARGET ";
-	$query .= "USING " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable AS SOURCE ";
+	$query = "MERGE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "] AS TARGET ";
+	$query .= "USING [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable] AS SOURCE ";
     $query .= "ON (";
 
 	$index = 0;
@@ -226,7 +226,7 @@ foreach ($mapping->tables as $table) {
 			$query .= " AND ";
 		}
 
-		$query .= "TARGET." . $table->dest->fields[--$key] . " = SOURCE." . $table->dest->fields[$key];
+		$query .= "TARGET.[" . $table->dest->fields[--$key] . "] = SOURCE.[" . $table->dest->fields[$key] . "]";
 		$index++;
 	}
 
@@ -238,26 +238,26 @@ foreach ($mapping->tables as $table) {
 			$query .= ", ";
 		}
 
-		$query .= "TARGET." . $attr . " = SOURCE." . $attr;
+		$query .= "TARGET.[" . $attr . "] = SOURCE.[" . $attr . "]";
 		$index++;
 	}
 
-	$query .= " WHEN NOT MATCHED BY TARGET THEN INSERT (" . implode(', ', $table->dest->fields) . ") VALUES (SOURCE." . implode(', SOURCE.', $table->dest->fields) . ") ";
+	$query .= " WHEN NOT MATCHED BY TARGET THEN INSERT ([" . implode('], [', $table->dest->fields) . "]) VALUES (SOURCE.[" . implode('], SOURCE.[', $table->dest->fields) . "]) ";
 	$query .= "WHEN NOT MATCHED BY SOURCE THEN DELETE;";
 
 	// Execute merge query
 	echo "Merging " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable into " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
 	$result = sqlsrv_query($sqlsrvDB, $query);
 
+    if (!$result) {
+		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery couldn't be performed: " . $query . "\r\n");
+        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery error server result: " . print_r(sqlsrv_errors(), true) . "\r\n");
+	}
+
     // Delete temporary import table
     echo "Drop temporary import table for table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
-    $query = "DROP TABLE " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable;";
+    $query = "DROP TABLE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable];";
     sqlsrv_query($sqlsrvDB, $query);
-
-	if (!$result) {
-		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query couldn't be performed: " . $query . "\r\n");
-        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query error server result: " . print_r(sqlsrv_errors(), true) . "\r\n");
-	}
 }
 
 // Close SQl Server database connection
@@ -265,7 +265,7 @@ echo "Close SQL Server connection ...\r\n";
 sqlsrv_close($sqlsrvDB);
 
 // Done!
-fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [success]: Done!\r\n");
+fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [success]:\tDone!\r\n");
 echo "Done!\r\n";
 
 // At least, close log file handler
