@@ -29,10 +29,7 @@
 				]
 			},
 			"dest": {
-				"table": {
-					"import": "Customers_import",
-					"merge": "Customers"
-				},
+				"table": "Customers",
 				"fields": [
 					"id",
 					"name",
