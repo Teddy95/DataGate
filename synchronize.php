@@ -86,10 +86,6 @@ foreach ($mapping->tables as $table) {
 		&& !empty($table->dest)
 		&& isset($table->dest->table)
 		&& !empty($table->dest->table)
-		&& isset($table->dest->table->import)
-		&& !empty($table->dest->table->import)
-		&& isset($table->dest->table->merge)
-		&& !empty($table->dest->table->merge)
 		&& isset($table->dest->fields)
 		&& !empty($table->dest->fields)
 		&& isset($table->dest->primaryKeys)
@@ -98,7 +94,7 @@ foreach ($mapping->tables as $table) {
 		die();
 	}
 
-	echo "Tables: " . $table->source->table . " (Oracle) -> " . $mapping->dest->scheme . "." . $table->dest->table->merge . " (SQL Server) ...\r\n";
+	echo "Tables: " . $table->source->table . " (Oracle) -> " . $mapping->dest->scheme . "." . $table->dest->table . " (SQL Server) ...\r\n";
 
 	// Build sql query
 	echo "Build SELECT query for Oracle ...\r\n";
@@ -136,11 +132,11 @@ foreach ($mapping->tables as $table) {
 
 	// Fetch the result into a new sql import file for SQL Server
 	if ($statement) {
-		echo "Build sql import files for table: " . $table->dest->table->merge . " ...\r\n";
+		echo "Build sql import files for table: " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
 
 		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
 			// Build INSERT INTO sql queries
-            $fileContent = "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table->import;
+            $fileContent = "INSERT INTO " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable";
             $values = Array();
 
             // Escape special characters
@@ -154,7 +150,7 @@ foreach ($mapping->tables as $table) {
 				$fileContent .= " (" . implode(', ', $table->dest->fields) . ") VALUES ('" . implode("', '", $values) . "');";
 			}
 
-            file_put_contents('cache/' . $table->dest->table->merge . '_' . md5(time() . uniqid()) . '.sql', $fileContent);
+            file_put_contents('cache/' . $table->dest->table . '_' . md5(time() . uniqid()) . '.sql', $fileContent);
 		}
 	} else {
 		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Table " . $table->source->table . " couldn't be synced!\r\n");
@@ -177,15 +173,19 @@ $sqlsrvDB = sqlsrv_connect($mapping->dest->host, [
 // Import all sql files to SQL Server database
 echo "Import all sql files to SQL Server ...\r\n";
 foreach ($mapping->tables as $table) {
-    // Truncate import table
-    $query = "TRUNCATE TABLE " . $mapping->dest->scheme . "." . $table->dest->table->import . ";";
+    // Create import table & truncate it in case of a magic filled table
+    echo "Create temporary import table from table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
+    $query = "SELECT * INTO " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable FROM " . $mapping->dest->scheme . "." . $table->dest->table . " WHERE 1 <> 1;";
+    sqlsrv_query($sqlsrvDB, $query);
+    $query = "TRUNCATE TABLE " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable;";
     sqlsrv_query($sqlsrvDB, $query);
 
     // Check whether sql files for current table exists
-    $sqlFiles = glob('cache/' . $table->dest->table->merge . '_*.sql');
+    $sqlFiles = glob('cache/' . $table->dest->table . '_*.sql');
 
     if (count($sqlFiles) >= 1) {
         // Iterate trough every sql file for current table, execute & unlink them
+        echo "Import sql files for table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
         foreach ($sqlFiles as $sqlFile) {
             // Read query from file
             $query = trim(file_get_contents($sqlFile));
@@ -215,8 +215,8 @@ foreach ($mapping->tables as $table) {
 echo "Merge import tables with target tables ...\r\n";
 foreach ($mapping->tables as $table) {
 	// Build merge query
-	$query = "MERGE " . $mapping->dest->scheme . "." . $table->dest->table->merge . " AS TARGET ";
-	$query .= "USING " . $mapping->dest->scheme . "." . $table->dest->table->import . " AS SOURCE ";
+	$query = "MERGE " . $mapping->dest->scheme . "." . $table->dest->table . " AS TARGET ";
+	$query .= "USING " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable AS SOURCE ";
     $query .= "ON (";
 
 	$index = 0;
@@ -246,8 +246,13 @@ foreach ($mapping->tables as $table) {
 	$query .= "WHEN NOT MATCHED BY SOURCE THEN DELETE;";
 
 	// Execute merge query
-	echo "Merging " . $mapping->dest->scheme . "." . $table->dest->table->import . " into " . $mapping->dest->scheme . "." . $table->dest->table->merge . " ...\r\n";
+	echo "Merging " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable into " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
 	$result = sqlsrv_query($sqlsrvDB, $query);
+
+    // Delete temporary import table
+    echo "Drop temporary import table for table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
+    $query = "DROP TABLE " . $mapping->dest->scheme . "." . $table->dest->table . "_temp_importtable;";
+    sqlsrv_query($sqlsrvDB, $query);
 
 	if (!$result) {
 		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]: Query couldn't be performed: " . $query . "\r\n");
