@@ -197,6 +197,7 @@ foreach ($mapping->tables as $table) {
 				if (!$result) {
 					fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery couldn't be performed: " . $query . "\r\n");
                     fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery file: " . $sqlFile . "\r\n");
+                    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery error server result: " . print_r(sqlsrv_errors(), true) . "\r\n");
 				} else {
                     // Delete sql file from cache
             		unlink($sqlFile);
