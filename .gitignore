@@ -1,4 +1,7 @@
 
+# Assets
+/assets/
+
 # Mapping file with secret data
 mapping.json
 
