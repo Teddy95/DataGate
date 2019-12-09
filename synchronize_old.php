@@ -22,9 +22,6 @@ if (isset($argv[1]) && !empty($argv[1]) && strpos($argv[1], '.json')) {
 // Set timelimit for script execution
 set_time_limit(0);
 
-// Set memory limit for script execution
-ini_set('memory_limit', '256M');
-
 // Check mapping.json
 echo "Check " . $mappingFile . " ...\r\n";
 if (!file_exists($mappingFile)) {
@@ -61,16 +58,22 @@ if (!(isset($mapping->source)
 	die();
 }
 
+// Clear cache
+echo "Clear cache ...\r\n";
+foreach (glob('cache/*.sql') as $cacheFile) {
+    unlink($cacheFile);
+}
+
 // Open logfile handlers
 $errorLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_error-log.txt', 'w');
 $queryLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_query-log.txt', 'w');
 
-foreach ($mapping->tables as $table) {
-    // Connect to Oracle Database
-    echo "Connect to Oracle database ...\r\n";
-    $oraDB = oci_pconnect($mapping->source->user, $mapping->source->password, $mapping->source->descriptionString, 'AL32UTF8');
+// Connect to Oracle Database
+echo "Connect to Oracle database ...\r\n";
+$oraDB = oci_pconnect($mapping->source->user, $mapping->source->password, $mapping->source->descriptionString, 'AL32UTF8');
 
-    // Export data from Oracle Database and create a sql query array for Microsoft SQL Server (for each table)
+// Export data from Oracle Database and create a sql import file for Microsoft SQL Server (for each table)
+foreach ($mapping->tables as $table) {
 	// Check all required fields from mapping.json file for current table
 	echo "Check " . $mappingFile . " for current table ...\r\n";
 	if (!(isset($table->source)
@@ -129,15 +132,9 @@ foreach ($mapping->tables as $table) {
 
 	// Fetch the result into a new sql import file for SQL Server
 	if ($statement) {
-		echo "Build sql import queries for table: " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
-
-        // Define query counter
-        $queryCounter = 0;
+		echo "Build sql import files for table: " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
 
 		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
-            // Increase query counter
-            $queryCounter++;
-
 			// Build INSERT INTO sql queries
             $fileContent = "INSERT INTO [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable]";
             $values = Array();
@@ -153,31 +150,29 @@ foreach ($mapping->tables as $table) {
 				$fileContent .= " ([" . implode('], [', $table->dest->fields) . "]) VALUES ('" . implode("', '", $values) . "');";
 			}
 
-            $queryStack[] = $fileContent;
+            file_put_contents('cache/' . $table->dest->table . '_' . md5(time() . uniqid()) . '.sql', $fileContent);
 		}
 	} else {
 		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tTable " . $table->source->table . " couldn't be synced!\r\n");
 	}
+}
 
-    // Output number of queries
-    echo "Queries for " . number_format($queryCounter, 0, ',', '.') . " Records have been created ...\r\n";
+// Close Oracle Database connection
+echo "Close Oracle connection ...\r\n";
+oci_close($oraDB);
 
-    // Close Oracle Database connection
-    echo "Close Oracle connection ...\r\n";
-    oci_close($oraDB);
+// Connect to SQL Server
+echo "Connect to Microsoft SQL Server " . $mapping->dest->user . "@" . $mapping->dest->host . " ...\r\n";
+$sqlsrvDB = sqlsrv_connect($mapping->dest->host, [
+	"Database" => $mapping->dest->database,
+	"Uid" => $mapping->dest->user,
+	"PWD" => $mapping->dest->password,
+    "CharacterSet" => 'UTF-8'
+]);
 
-    // Connect to SQL Server
-    echo "Connect to Microsoft SQL Server " . $mapping->dest->user . "@" . $mapping->dest->host . " ...\r\n";
-    $sqlsrvDB = sqlsrv_connect($mapping->dest->host, [
-    	"Database" => $mapping->dest->database,
-    	"Uid" => $mapping->dest->user,
-    	"PWD" => $mapping->dest->password,
-        "CharacterSet" => 'UTF-8'
-    ]);
-
-    // Import all sql files to SQL Server database
-    echo "Import all sql queries of table " . $mapping->dest->scheme . "." . $table->dest->table . " to SQL Server ...\r\n";
-
+// Import all sql files to SQL Server database
+echo "Import all sql files to SQL Server ...\r\n";
+foreach ($mapping->tables as $table) {
     // Create import table & truncate it in case of a magic filled table
     echo "Create temporary import table from table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
     $query = "SELECT * INTO [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable] FROM [" . $mapping->dest->scheme . "].[" . $table->dest->table . "] WHERE 1 <> 1;";
@@ -185,25 +180,42 @@ foreach ($mapping->tables as $table) {
     $query = "TRUNCATE TABLE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable];";
     sqlsrv_query($sqlsrvDB, $query);
 
-    // Iterate trough every sql file for current table, execute & unlink them
-    echo "Import sql queries for table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
-    foreach ($queryStack as $query) {
-        // Execute query
-        $result = sqlsrv_query($sqlsrvDB, $query);
+    // Check whether sql files for current table exists
+    $sqlFiles = glob('cache/' . $table->dest->table . '_*.sql');
 
-        if (!$result) {
-            fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery couldn't be performed: " . $query . "\r\n");
-            fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery error server result: " . print_r(sqlsrv_errors(), true) . "\r\n");
+    if (count($sqlFiles) >= 1) {
+        // Iterate trough every sql file for current table, execute & unlink them
+        echo "Import sql files for table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
+        foreach ($sqlFiles as $sqlFile) {
+            // Read query from file
+            $query = trim(file_get_contents($sqlFile));
+
+            if (!empty($query)) {
+				// Execute query
+				$result = sqlsrv_query($sqlsrvDB, $query);
+
+				if (!$result) {
+					fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery couldn't be performed: " . $query . "\r\n");
+                    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery file: " . $sqlFile . "\r\n");
+                    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tQuery error server result: " . print_r(sqlsrv_errors(), true) . "\r\n");
+				} else {
+                    // Delete sql file from cache
+            		unlink($sqlFile);
+                }
+			} else {
+                // Delete sql file from cache
+        		unlink($sqlFile);
+            }
         }
+    } else {
+        fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tTable " . $table->source->table . " couldn't be synced!\r\n");
     }
+}
 
-    // Empty query stack
-    $queryStack = Array();
-
-    // Merge import tables with target tables
-    echo "Merge import table with target table ...\r\n";
-
-    // Build merge query
+// Merge import tables with target tables
+echo "Merge import tables with target tables ...\r\n";
+foreach ($mapping->tables as $table) {
+	// Build merge query
 	$query = "MERGE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "] AS TARGET ";
 	$query .= "USING [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable] AS SOURCE ";
     $query .= "ON (";
@@ -247,11 +259,11 @@ foreach ($mapping->tables as $table) {
     echo "Drop temporary import table for table " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
     $query = "DROP TABLE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable];";
     sqlsrv_query($sqlsrvDB, $query);
-
-    // Close SQl Server database connection
-    echo "Close SQL Server connection ...\r\n";
-    sqlsrv_close($sqlsrvDB);
 }
+
+// Close SQl Server database connection
+echo "Close SQL Server connection ...\r\n";
+sqlsrv_close($sqlsrvDB);
 
 // Done!
 fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [success]:\tDone!\r\n");
