@@ -65,6 +65,9 @@ if (!(isset($mapping->source)
 $errorLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_error-log.txt', 'w');
 $queryLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_query-log.txt', 'w');
 
+// Tableindex
+$tableIndex = 0;
+
 foreach ($mapping->tables as $table) {
     // Connect to Oracle Database
     echo "Connect to Oracle database ...\r\n";
@@ -119,6 +122,9 @@ foreach ($mapping->tables as $table) {
 		}
 	}
 
+    // Define query stack
+    $queryStack = Array();
+
 	// Add query to query log file
 	fwrite($queryLogFileHandle, date('Y-m-d H:i:s') . " [query][Oracle]:\t\t" . $query . "\r\n");
 
@@ -143,14 +149,18 @@ foreach ($mapping->tables as $table) {
             $values = Array();
 
             // Escape special characters
-            foreach ($row as $value) {
-                $values[] = str_replace("'", "''", $value);
+            for ($i = 0, $j = count($mapping->tables[$tableIndex]->source->fields); $i < $j; $i++) {
+                if (isset($row[$i])) {
+                    $values[] = "'" . str_replace("'", "''", $row[$i]) . "'";
+                } else {
+                    $values[] = 'null';
+                }
             }
 
 			if (count($table->dest->fields) == 1 && $table->dest->fields[0] == '*') {
 				$fileContent .= " VALUES ('" . implode("', '", $values) . "')";
 			} else {
-				$fileContent .= " ([" . implode('], [', $table->dest->fields) . "]) VALUES ('" . implode("', '", $values) . "');";
+				$fileContent .= " ([" . implode('], [', $table->dest->fields) . "]) VALUES (" . implode(", ", $values) . ");";
 			}
 
             $queryStack[] = $fileContent;
@@ -251,6 +261,9 @@ foreach ($mapping->tables as $table) {
     // Close SQl Server database connection
     echo "Close SQL Server connection ...\r\n";
     sqlsrv_close($sqlsrvDB);
+
+    // Increase table index
+    $tableIndex++;
 }
 
 // Done!
