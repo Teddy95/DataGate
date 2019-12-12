@@ -56,6 +56,8 @@ You can execute the DataGate script in two different ways:
 1. Execute DataGate.bat (uses mapping.json)
 2. Open the command line and navigate to the DataGate project directory, then enter `php synchronize.php`
 
+If you are using the batch file, open DataGate.bat first in a text editor and replace the path to php and DataGate.
+
 If you are using the command line interface, you can use another mapping file for example:
 ```bash
 $ php synchronize.php newMapping.json
