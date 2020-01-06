@@ -32,18 +32,18 @@ if (!file_exists($mappingFile)) {
 	die();
 }
 
-// Get data from mapping.json and check all required fields
+// Get data from mapping.json
 $mapping = json_decode(file_get_contents($mappingFile));
 
-if (!(isset($mapping->source)
-	&& !empty($mapping->source)
-	&& isset($mapping->source->user)
-	&& !empty($mapping->source->user)
-	&& isset($mapping->source->password)
-	&& !empty($mapping->source->password)
-	&& isset($mapping->source->descriptionString)
-	&& !empty($mapping->source->descriptionString)
-	&& isset($mapping->dest)
+// Map source databases into array
+if (is_array($mapping->source)) {
+    $sources = $mapping->source;
+} else {
+    $sources = Array($mapping->source);
+}
+
+// Check all required fields
+if (!(isset($mapping->dest)
 	&& !empty($mapping->dest)
 	&& isset($mapping->dest->host)
 	&& !empty($mapping->dest->host)
@@ -61,6 +61,18 @@ if (!(isset($mapping->source)
 	die();
 }
 
+foreach ($sources as $source) {
+    if (!(isset($source->user)
+    	&& !empty($source->user)
+    	&& isset($source->password)
+    	&& !empty($source->password)
+    	&& isset($source->descriptionString)
+    	&& !empty($source->descriptionString))) {
+    	echo 'File ' . $mappingFile . ' don\'t have all required fields!';
+    	die();
+    }
+}
+
 // Open logfile handlers
 $errorLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_error-log.txt', 'w');
 $queryLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_query-log.txt', 'w');
@@ -69,112 +81,115 @@ $queryLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_query-log.txt', 'w'
 $tableIndex = 0;
 
 foreach ($mapping->tables as $table) {
-    // Connect to Oracle Database
-    echo "Connect to Oracle database ...\r\n";
-    $oraDB = oci_pconnect($mapping->source->user, $mapping->source->password, $mapping->source->descriptionString, 'AL32UTF8');
-
-    // Export data from Oracle Database and create a sql query array for Microsoft SQL Server (for each table)
-	// Check all required fields from mapping.json file for current table
-	echo "Check " . $mappingFile . " for current table ...\r\n";
-	if (!(isset($table->source)
-		&& !empty($table->source)
-		&& isset($table->source->table)
-		&& !empty($table->source->table)
-		&& isset($table->source->fields)
-		&& !empty($table->source->fields)
-		&& isset($table->dest)
-		&& !empty($table->dest)
-		&& isset($table->dest->table)
-		&& !empty($table->dest->table)
-		&& isset($table->dest->fields)
-		&& !empty($table->dest->fields)
-		&& isset($table->dest->primaryKeys)
-		&& !empty($table->dest->primaryKeys))) {
-		echo 'File ' . $mappingFile . ' don\'t have all required fields for table synchronization!';
-		die();
-	}
-
-	echo "Tables: " . $table->source->table . " (Oracle) -> " . $mapping->dest->scheme . "." . $table->dest->table . " (SQL Server) ...\r\n";
-
-	// Build sql query
-	echo "Build SELECT query for Oracle ...\r\n";
-	$query = "SELECT " . implode(', ', $table->source->fields) . " FROM " . $table->source->table;
-
-	// Build WHERE statement for sql query if where is in mapping.json included
-	if (isset($table->source->where) && !empty($table->source->where) && is_array($table->source->where)) {
-		$index = 0;
-
-		foreach ($table->source->where as $whereStmt) {
-			// At first iteration use keyword WHERE, all other iterations use AND or OR
-			if ($index == 0) {
-				$query .= " WHERE " . $whereStmt->attr . " " . $whereStmt->operator . " " . $whereStmt->value;
-			} else {
-				if (isset($whereStmt->method) && !empty($whereStmt->method) && $whereStmt->method == 'OR') {
-					$query .= " OR ";
-				} else {
-					$query .= " AND ";
-				}
-
-				$query .= $whereStmt->attr . " " . $whereStmt->operator . " " . $whereStmt->value;
-			}
-
-			$index++;
-		}
-	}
+    // Check all required fields from mapping.json file for current table
+    echo "Check " . $mappingFile . " for current table ...\r\n";
+    if (!(isset($table->source)
+        && !empty($table->source)
+        && isset($table->source->table)
+        && !empty($table->source->table)
+        && isset($table->source->fields)
+        && !empty($table->source->fields)
+        && isset($table->dest)
+        && !empty($table->dest)
+        && isset($table->dest->table)
+        && !empty($table->dest->table)
+        && isset($table->dest->fields)
+        && !empty($table->dest->fields)
+        && isset($table->dest->primaryKeys)
+        && !empty($table->dest->primaryKeys))) {
+        echo 'File ' . $mappingFile . ' don\'t have all required fields for table synchronization!';
+        die();
+    }
 
     // Define query stack
     $queryStack = Array();
 
-	// Add query to query log file
-	fwrite($queryLogFileHandle, date('Y-m-d H:i:s') . " [query][Oracle]:\t\t" . $query . "\r\n");
+    // Build queries for all databases
+    foreach ($sources as $source) {
+        // Connect to Oracle Database
+        echo "Connect to Oracle database ...\r\n";
+        $oraDB = oci_pconnect($source->user, $source->password, $source->descriptionString, 'AL32UTF8');
 
-	// Execute query
-	echo "Execute query ...\r\n";
-	$statement = oci_parse($oraDB, $query);
-	oci_execute($statement);
+        // Export data from Oracle Database and create a sql query array for Microsoft SQL Server (for each table)
+    	echo "Tables: " . $table->source->table . " (Oracle) -> " . $mapping->dest->scheme . "." . $table->dest->table . " (SQL Server) ...\r\n";
 
-	// Fetch the result into a new sql import file for SQL Server
-	if ($statement) {
-		echo "Build sql import queries for table: " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
+    	// Build sql query
+    	echo "Build SELECT query for Oracle ...\r\n";
+    	$query = "SELECT " . implode(', ', $table->source->fields) . " FROM " . $table->source->table;
 
-        // Define query counter
-        $queryCounter = 0;
+    	// Build WHERE statement for sql query if where is in mapping.json included
+    	if (isset($table->source->where) && !empty($table->source->where) && is_array($table->source->where)) {
+    		$index = 0;
 
-		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
-            // Increase query counter
-            $queryCounter++;
+    		foreach ($table->source->where as $whereStmt) {
+    			// At first iteration use keyword WHERE, all other iterations use AND or OR
+    			if ($index == 0) {
+    				$query .= " WHERE " . $whereStmt->attr . " " . $whereStmt->operator . " " . $whereStmt->value;
+    			} else {
+    				if (isset($whereStmt->method) && !empty($whereStmt->method) && $whereStmt->method == 'OR') {
+    					$query .= " OR ";
+    				} else {
+    					$query .= " AND ";
+    				}
 
-			// Build INSERT INTO sql queries
-            $fileContent = "INSERT INTO [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable]";
-            $values = Array();
+    				$query .= $whereStmt->attr . " " . $whereStmt->operator . " " . $whereStmt->value;
+    			}
 
-            // Escape special characters
-            for ($i = 0, $j = count($mapping->tables[$tableIndex]->source->fields); $i < $j; $i++) {
-                if (isset($row[$i])) {
-                    $values[] = "'" . str_replace("'", "''", $row[$i]) . "'";
-                } else {
-                    $values[] = 'null';
+    			$index++;
+    		}
+    	}
+
+    	// Add query to query log file
+    	fwrite($queryLogFileHandle, date('Y-m-d H:i:s') . " [query][Oracle]:\t\t" . $query . "\r\n");
+
+    	// Execute query
+    	echo "Execute query ...\r\n";
+    	$statement = oci_parse($oraDB, $query);
+    	oci_execute($statement);
+
+    	// Fetch the result into a new sql import file for SQL Server
+    	if ($statement) {
+    		echo "Build sql import queries for table: " . $mapping->dest->scheme . "." . $table->dest->table . " ...\r\n";
+
+            // Define query counter
+            $queryCounter = 0;
+
+    		while (($row = oci_fetch_array($statement, OCI_NUM)) != false) {
+                // Increase query counter
+                $queryCounter++;
+
+    			// Build INSERT INTO sql queries
+                $fileContent = "INSERT INTO [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable]";
+                $values = Array();
+
+                // Escape special characters
+                for ($i = 0, $j = count($mapping->tables[$tableIndex]->source->fields); $i < $j; $i++) {
+                    if (isset($row[$i])) {
+                        $values[] = "'" . str_replace("'", "''", $row[$i]) . "'";
+                    } else {
+                        $values[] = 'null';
+                    }
                 }
-            }
 
-			if (count($table->dest->fields) == 1 && $table->dest->fields[0] == '*') {
-				$fileContent .= " VALUES ('" . implode("', '", $values) . "')";
-			} else {
-				$fileContent .= " ([" . implode('], [', $table->dest->fields) . "]) VALUES (" . implode(", ", $values) . ");";
-			}
+    			if (count($table->dest->fields) == 1 && $table->dest->fields[0] == '*') {
+    				$fileContent .= " VALUES ('" . implode("', '", $values) . "')";
+    			} else {
+    				$fileContent .= " ([" . implode('], [', $table->dest->fields) . "]) VALUES (" . implode(", ", $values) . ");";
+    			}
 
-            $queryStack[] = $fileContent;
-		}
-	} else {
-		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tTable " . $table->source->table . " couldn't be synced!\r\n");
-	}
+                $queryStack[] = $fileContent;
+    		}
+    	} else {
+    		fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [error]:\tTable " . $table->source->table . " couldn't be synced!\r\n");
+    	}
 
-    // Output number of queries
-    echo "Queries for " . number_format($queryCounter, 0, ',', '.') . " Records have been created ...\r\n";
+        // Output number of queries
+        echo "Queries for \033[0;36m" . number_format($queryCounter, 0, ',', '.') . "\033[0m Records have been created ...\r\n";
 
-    // Close Oracle Database connection
-    echo "Close Oracle connection ...\r\n";
-    oci_close($oraDB);
+        // Close Oracle Database connection
+        echo "Close Oracle connection ...\r\n";
+        oci_close($oraDB);
+    }
 
     // Connect to SQL Server
     echo "Connect to Microsoft SQL Server " . $mapping->dest->user . "@" . $mapping->dest->host . " ...\r\n";
@@ -259,7 +274,7 @@ foreach ($mapping->tables as $table) {
     sqlsrv_query($sqlsrvDB, $query);
 
     // Close SQl Server database connection
-    echo "Close SQL Server connection ...\r\n";
+    echo "Close SQL Server connection ...\r\n\r\n";
     sqlsrv_close($sqlsrvDB);
 
     // Increase table index
@@ -268,7 +283,7 @@ foreach ($mapping->tables as $table) {
 
 // Done!
 fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [success]:\tDone!\r\n");
-echo "Done!\r\n";
+echo "Done!\r\n\r\n";
 
 // At least, close log file handler
 fclose($errorLogFileHandle);
