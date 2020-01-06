@@ -6,9 +6,11 @@ Synchronize Tables from Oracle to Microsoft SQL Server :page_facing_up::door:
 
 ### mapping.json data structure
 
+If you are synchronizing more than one sources, then each source must have the same table structure!
+
 ```
 {
-	source {
+	source {			// Source can be an object or an array of objects (to aggregate multiple data sources into one)
 		user			// Oracle Database Username
 		password		// Password
 		descriptionString	// Connection string
