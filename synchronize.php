@@ -73,14 +73,14 @@ foreach ($sources as $source) {
     }
 }
 
-// Open logfile handlers
-$errorLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_error-log.txt', 'w');
-$queryLogFileHandle = fopen('log/' . date('Y-m-d_H-i-s') . '_query-log.txt', 'w');
-
 // Tableindex
 $tableIndex = 0;
 
 foreach ($mapping->tables as $table) {
+    // Open logfile handlers
+    $errorLogFileHandle = fopen(__DIR__ . '/log/' . date('Y-m-d_H-i-s') . '_error-log_' . $table->source->table . '.txt', 'w');
+    $queryLogFileHandle = fopen(__DIR__ . '/log/' . date('Y-m-d_H-i-s') . '_query-log_' . $table->source->table . '.txt', 'w');
+
     // Check all required fields from mapping.json file for current table
     echo "Check " . $mappingFile . " for current table ...\r\n";
     if (!(isset($table->source)
@@ -230,7 +230,7 @@ foreach ($mapping->tables as $table) {
 
     // Build merge query
 	$query = "MERGE [" . $mapping->dest->scheme . "].[" . $table->dest->table . "] AS TARGET ";
-	$query .= "USING [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable] AS SOURCE ";
+	$query .= "USING ( SELECT DISTINCT * FROM [" . $mapping->dest->scheme . "].[" . $table->dest->table . "_temp_importtable] ) AS SOURCE ";
     $query .= "ON (";
 
 	$index = 0;
@@ -279,12 +279,14 @@ foreach ($mapping->tables as $table) {
 
     // Increase table index
     $tableIndex++;
+
+    // Done!
+    fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [success]:\tDone!\r\n");
+
+    // At least, close log file handler
+    fclose($errorLogFileHandle);
+    fclose($queryLogFileHandle);
 }
 
 // Done!
-fwrite($errorLogFileHandle, date('Y-m-d H:i:s') . " [success]:\tDone!\r\n");
 echo "Done!\r\n\r\n";
-
-// At least, close log file handler
-fclose($errorLogFileHandle);
-fclose($queryLogFileHandle);
